@@ -34,3 +34,8 @@ services:
 
 volumes:
   postgres_data:
+networks:
+  default:
+    ipam:
+     config:
+        - subnet: 10.100.50.0/24
