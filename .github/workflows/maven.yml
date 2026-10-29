@@ -39,6 +39,19 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           script: |
-            whoami
-            hostname
+            set -e
+            cd /root/PhamDinhTruong-CICD/Secure-Internal-Developer-Platform-IDP-
+            git pull --ff-only origin main
+            docker compose up -d --build
+            docker compose ps
+            docker compose logs --tail=50 backend
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8000/api/health; then
+                echo "DEPLOYMENT SUCCESS"
+                exit 0
+              fi
+              sleep 2
+            done
+            docker compose logs --tail=100 backend
+            exit 1
 
