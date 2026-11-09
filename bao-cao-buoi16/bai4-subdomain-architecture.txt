@@ -1,0 +1,73 @@
+================================================================================
+BÀI 4: THIẾT KẾ MÔ HÌNH NHIỀU SUBDOMAIN CHẠY SONG SONG TRÊN CÙNG DOMAIN
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: bai4-subdomain-architecture.txt
+================================================================================
+
+1. SƠ ĐỒ HỆ THỐNG ĐA SUBDOMAIN:
+--------------------------------------------------------------------------------
+                         [ NGƯỜI DÙNG / INTERNET ]
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────────┐
+        │                  NGINX REVERSE PROXY                   │
+        │               (Cổng Public: 80 & 443)                  │
+        └───────┬─────────────┬─────────────┬────────────┬───────┘
+                │             │             │            │
+  example.com   │             │             │            │ staging.example.com
+ ┌──────────────┘             │             │            └──────────────┐
+ │                            │             │                           │
+ │         api.example.com    │             │ admin.example.com         │
+ ▼                            ▼             ▼                           ▼
+┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│ Web Chính        │ │ Backend API      │ │ Admin Console    │ │ Staging Stack    │
+│ (Next.js :3000)  │ │ (Spring Boot:8000│ │ (Next.js :3000)  │ │ (Testing :3001)  │
+│ [PORT NỘI BỘ]    │ │ [PORT NỘI BỘ]    │ │ [PORT NỘI BỘ]    │ │ [PORT NỘI BỘ]    │
+└──────────────────┘ └────────┬─────────┘ └──────────────────┘ └──────────────────┘
+                              │
+                              ▼ (Giao tiếp nội bộ: db:5432)
+                     ┌──────────────────┐
+                     │ PostgreSQL DB    │
+                     │ [CỔNG ẨN NỘI BỘ] │
+                     └──────────────────┘
+
+
+2. BẢNG PHÂN LOẠI MỤC ĐÍCH & PHẠM VI TRUY CẬP:
+--------------------------------------------------------------------------------
+- example.com:
+  + Mục đích: Web giới thiệu, Landing Page và Self-service Developer Portal.
+  + Service tương ứng: Frontend (Next.js container).
+  + Phạm vi: Public toàn cầu cho người dùng và đối tác.
+
+- api.example.com:
+  + Mục đích: Cung cấp RESTful API cho ứng dụng Web, Mobile và CI/CD script.
+  + Service tương ứng: Backend (Spring Boot container).
+  + Phạm vi: Public các endpoint công khai, bảo vệ bằng JWT Token / API Key.
+
+- admin.example.com:
+  + Mục đích: Bảng điều khiển quản trị viên, quản lý tài khoản, xem audit log.
+  + Service tương ứng: Frontend (Next.js subpath `/admin`).
+  + Phạm vi: Hạn chế truy cập (Internal / Restricted - Nên dùng VPN hoặc IP Whitelist).
+
+- staging.example.com:
+  + Mục đích: Môi trường chạy thử nghiệm các tính năng mới trước khi release lên prod.
+  + Service tương ứng: Staging containers stack chạy độc lập.
+  + Phạm vi: Chỉ nội bộ đội ngũ phát triển và QA/QC (Internal only).
+
+
+3. MÔ TẢ KỸ THUẬT (10-15 DÒNG):
+--------------------------------------------------------------------------------
+Kiến trúc sử dụng Nginx làm bộ điều hướng Layer 7 Ingress Controller duy nhất
+cho toàn bộ hệ thống máy chủ. Nginx tiếp nhận các kết nối tại cổng công khai 80/443,
+giải mã SSL/TLS và phân tích HTTP Host header để quyết định đích đến của từng request.
+Tên miền chính `example.com` được định tuyến trực tiếp về container Web Frontend
+chạy tại cổng nội bộ 3000. Subdomain `api.example.com` được proxy sang container
+Backend Spring Boot tại cổng 8000. Subdomain quản trị `admin.example.com` được proxy
+ngầm đến phân vùng giao diện quản trị mà không cần tạo thêm dịch vụ nodejs mới,
+giúp tiết kiệm tài nguyên RAM cho VPS. Môi trường `staging.example.com` được tách
+thành một stack Compose độc lập để đảm bảo an toàn, không ảnh hưởng đến dữ liệu
+production. Mọi service ứng dụng và cơ sở dữ liệu PostgreSQL giao tiếp với nhau
+thông qua mạng Docker Bridge nội bộ 10.100.50.0/24. Cổng 5432 của CSDL được ẩn hoàn
+toàn khỏi giao diện mạng bên ngoài, đảm bảo tuân thủ tiêu chuẩn an toàn DevSecOps.
+================================================================================
+

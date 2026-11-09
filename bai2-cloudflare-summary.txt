@@ -1,0 +1,52 @@
+================================================================================
+BÀI 2: VAI TRÒ CỦA CLOUDFLARE TRONG HỆ THỐNG DOANH NGHIỆP
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+================================================================================
+
+1. CLOUDFLARE ĐỨNG Ở ĐÂU TRONG HỆ THỐNG?
+--------------------------------------------------------------------------------
+Cloudflare đóng vai trò là Lớp Bảo vệ Ngoại vi (Edge Reverse Proxy & WAF/CDN).
+Vị trí đứng: Nằm ở giữa Người dùng (User/Browser) và Máy chủ gốc (Origin Ubuntu VPS).
+
+Sơ đồ vị trí:
+[User / Browser]
+       │
+       ▼ (DNS / HTTPS)
+[Cloudflare Edge Network] (WAF, CDN Caching, DDoS Mitigation)
+       │
+       ▼ (Mã hóa SSL/TLS Full Strict - Chỉ cho phép IP Cloudflare)
+[Nginx Reverse Proxy trên Ubuntu VPS]
+       │
+       ▼ (Docker Network nội bộ 10.100.50.0/24)
+[Containers: Web Frontend (:3000) | Spring Boot API (:8000) | PostgreSQL (:5432)]
+
+
+2. CLOUDFLARE LÀM GÌ TRONG HỆ THỐNG?
+--------------------------------------------------------------------------------
+- Che giấu IP máy chủ gốc (IP Masking): Thay vì phân giải domain ra trực tiếp IP
+  của VPS, Cloudflare Anycast DNS trả về dải IP của Cloudflare.
+- Phòng chống tấn công từ chối dịch vụ (DDoS Protection): Hấp thụ các đợt tấn công
+  Layer 3/4 (SYN Flood, UDP Flood) và Layer 7 (HTTP Flood) tại biên mạng.
+- Tường lửa ứng dụng web (WAF - Web Application Firewall): Chặn các cuộc tấn công
+  phổ biến như SQL Injection, Cross-Site Scripting (XSS), brute-force bot.
+- Tối ưu hóa hiệu năng & Tăng tốc (CDN & Caching): Cache các static assets
+  (JS, CSS, images của Next.js) tại edge server gần người dùng nhất, giảm tải cho VPS.
+- Quản lý chứng chỉ SSL/TLS tự động: Cung cấp HTTPS linh hoạt từ browser đến edge.
+
+
+3. VÌ SAO TUYỆT ĐỐI KHÔNG ĐƯỢC ĐỂ LỘ ORIGIN IP (IP MÁY CHỦ GỐC)?
+--------------------------------------------------------------------------------
+Nếu Origin IP bị lộ ra ngoài Internet (qua DNS history, mail server, header rò rỉ):
+- Kẻ tấn công có thể BYPASS (vượt qua mặt) hoàn toàn lớp bảo vệ của Cloudflare.
+- Hacker sẽ bắn trực tiếp lưu lượng tấn công DDoS/SYN Flood vào thẳng IP VPS, làm
+  máy chủ sập CPU, cạn RAM và sập mạng mà Cloudflare không thể can thiệp.
+- Kẻ tấn công có thể quét trực tiếp các port hở (như port 22 SSH, 5432 Database,
+  các port test nội bộ) để khai thác lỗ hổng trực tiếp.
+- Mất toàn bộ giá trị bảo vệ của tường lửa WAF và Rate Limiting.
+
+=> BIỆN PHÁP BẮT BUỘC:
+Trên Ubuntu VPS, dùng UFW (Uncomplicated Firewall) hoặc iptables CHỈ CHO PHÉP
+kết nối port 80/443 từ các dải IP chính thức của Cloudflare (cloudflare.com/ips).
+Tất cả các IP lạ khác kết nối trực tiếp vào port 80/443 của VPS đều bị DROP.
+================================================================================
+

@@ -1,0 +1,64 @@
+================================================================================
+BÀI 8: SƠ ĐỒ PIPELINE VÀ LUỒNG TRIỂN KHAI HỆ THỐNG
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: bai8-pipeline-diagram.txt
+================================================================================
+
+1. SƠ ĐỒ TOÀN CẢNH PIPELINE TỪ CODE ĐẾN USER:
+--------------------------------------------------------------------------------
+[1. Source Code]
+  - Developer viết code trên máy trạm (VS Code)
+  - Đẩy commit lên GitHub: git push origin main
+       │
+       ▼
+[2. GitHub Actions CI/CD (.github/workflows/maven.yml)]
+  - Checkout mã nguồn
+  - Cài đặt môi trường JDK 21
+  - Biên dịch kiểm thử backend: ./mvnw package
+  - Kết nối bảo mật SSH vào Ubuntu VPS qua Secret Key
+       │
+       ▼
+[3. Ubuntu VPS (Server)]
+  - Nhận lệnh trigger từ GitHub Actions
+  - Kéo mã nguồn mới nhất: git pull --ff-only origin main
+       │
+       ▼
+[4. Build Docker Images (Từ Dockerfile)]
+  - Backend: Build image từ backend/Dockerfile (Eclipse Temurin JDK/JRE multi-stage)
+  - Frontend: Build image từ frontend/Dockerfile (Node.js 24 Alpine standalone)
+       │
+       ▼
+[5. Docker Containers Stack Chạy Ngầm]
+  - Docker Compose khởi chạy:
+    + db: PostgreSQL 16 (Dữ liệu mount volume)
+    + backend: Spring Boot API (Port nội bộ :8000)
+    + frontend: Next.js Web & Admin (Port nội bộ :3000)
+       │
+       ▲ (proxy_pass nội bộ 127.0.0.1)
+[6. Nginx Reverse Proxy (Port 80/443)]
+  - Lắng nghe và phân luồng Virtual Host theo HTTP Host Header:
+    + truongtest.id.vn       -> 127.0.0.1:3000
+    + api.truongtest.id.vn   -> 127.0.0.1:8000
+    + admin.truongtest.id.vn -> 127.0.0.1:3000/admin
+       │
+       ▲ (Mã hóa SSL/TLS Strict)
+[7. Cloudflare Edge Layer]
+  - Anycast DNS giấu Origin IP của VPS
+  - WAF kiểm tra request, lọc tấn công DDoS L3/L4/L7
+  - Cache các tài nguyên tĩnh CDN
+       │
+       ▲ (Gửi yêu cầu HTTPS)
+[8. User / Browser / Client]
+  - Người dùng truy cập qua trình duyệt web từ mọi nơi trên thế giới.
+
+
+2. GIẢI THÍCH CHI TIẾT CÁC THÀNH PHẦN BẮT BUỘC TRONG ĐỀ BÀI:
+--------------------------------------------------------------------------------
+- Code đi từ đâu: Đi từ máy trạm của lập trình viên -> GitHub Repository -> Kéo về VPS qua Git.
+- Image được build ở đâu: Docker image được build trực tiếp trên máy chủ Ubuntu VPS từ các file Dockerfile tương ứng.
+- Container chạy ở đâu: Chạy ngầm trong môi trường Docker Engine của VPS dưới sự quản lý của Docker Compose.
+- Nginx đứng ở đâu: Đứng ở tầng Host của VPS, làm cổng đón đầu tiên tiếp nhận request từ Internet.
+- Cloudflare Edge nằm ở đâu: Nằm ở ngoài cùng, tiếp xúc trực tiếp với người dùng toàn cầu, chặn đứng các cuộc tấn công trước khi request chạm tới VPS.
+- Người dùng đi vào hệ thống: User -> Cloudflare Edge -> Nginx VPS -> Docker Containers.
+================================================================================
+

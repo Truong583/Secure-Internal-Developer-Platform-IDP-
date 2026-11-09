@@ -1,0 +1,41 @@
+================================================================================
+BÀI 3: KẾT QUẢ RÀ SOÁT CỔNG MẠNG VÀ PHÁT HIỆN DỊCH VỤ RỦI RO TRÊN SERVER
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: bai3-port-audit.txt
+================================================================================
+
+1. CÁC LỆNH KIỂM TRA THỰC THI TRÊN SERVER:
+--------------------------------------------------------------------------------
+- Lệnh 1: Kiểm tra toàn bộ cổng đang mở trên host:
+  ss -tuln
+- Lệnh 2: Kiểm tra danh sách container và cổng mapping:
+  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+- Lệnh 3: Kiểm tra tiến trình Nginx đang bind cổng nào:
+  ss -tulnp | grep nginx
+
+
+2. PHÂN LOẠI CÁC CỔNG MẠNG TRÊN SERVER:
+--------------------------------------------------------------------------------
++ CỔNG PUBLIC HỢP LÝ:
+  - Port 80 (HTTP) và Port 443 (HTTPS) do Nginx lắng nghe trên 0.0.0.0.
+    => Lý do hợp lý: Nginx là cửa ngõ duy nhất cần tiếp nhận request từ người dùng
+       ngoài Internet và từ Cloudflare.
+  - Port 22 (SSH) lắng nghe để quản trị viên truy cập vào server.
+
++ CỔNG PUBLIC CHƯA HỢP LÝ (RỦI RO TIỀM ẨN):
+  - Bất kỳ cổng ứng dụng nào như 3000 (Next.js) hay 8000 (Spring Boot) nếu bind
+    vào `0.0.0.0:3000` hoặc `0.0.0.0:8000`.
+    => Lý do rủi ro: Người ngoài Internet có thể truy cập thẳng vào container mà
+       không đi qua lớp lọc, ghi log và xác thực của Nginx.
+    => Khắc phục: Chỉ bind vào loopback `127.0.0.1:3000` và `127.0.0.1:8000`.
+
++ CỔNG NỘI BỘ NÊN ẨN TUYỆT ĐỐI:
+  - Port 5432 (PostgreSQL Database).
+  - Tình trạng phát hiện: Nếu file compose.yaml map `5432:5432` ra host.
+  - Đánh giá rủi ro: Cực kỳ nguy hiểm! Kẻ tấn công có thể quét ra port CSDL và
+    thực hiện Brute-force mật khẩu hoặc tấn công khai thác lỗ hổng cơ sở dữ liệu.
+  - Khắc phục DevSecOps: Xóa bỏ dòng ports `5432:5432` khỏi compose.yaml. Backend
+    và Database sẽ giao tiếp với nhau hoàn toàn qua dải mạng Docker Bridge nội bộ
+    (`db:5432`), cổng 5432 biến mất hoàn toàn trên máy chủ Host.
+================================================================================
+

@@ -1,0 +1,48 @@
+================================================================================
+BÀI 2: VAI TRÒ CỦA CLOUDFLARE TRONG HỆ THỐNG DOANH NGHIỆP
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: bai2-cloudflare-summary.txt
+================================================================================
+
+1. SƠ ĐỒ HỆ THỐNG CÓ CLOUDFLARE:
+--------------------------------------------------------------------------------
+[ User / Browser ]
+       │
+       ▼ (HTTPS qua Anycast DNS)
+[ Cloudflare Edge Network ] (WAF, CDN Caching, DDoS Mitigation)
+       │
+       ▼ (Proxy đến Origin IP - Đã mã hóa Full Strict)
+[ Ubuntu Server (VPS) ]
+       │
+       ▼
+[ Nginx Reverse Proxy (Port 80/443) ]
+       │
+       ▼ (Internal Docker Bridge Network 10.100.50.0/24)
+[ App / Containers: Web (:3000) | Backend API (:8000) | PostgreSQL (:5432) ]
+
+
+2. CLOUDFLARE ĐỨNG Ở ĐÂU VÀ LÀM GÌ TRONG HỆ THỐNG?
+--------------------------------------------------------------------------------
+- Vị trí: Đứng ở lớp biên (Edge Layer) giữa Internet bên ngoài và máy chủ Ubuntu VPS.
+- Nhiệm vụ:
+  + Che giấu IP máy chủ gốc (IP Masking): Trả về IP của Cloudflare khi phân giải DNS.
+  + Chống tấn công DDoS L3/L4 và L7: Tự động hấp thụ và triệt tiêu lưu lượng tấn công
+    lớn trước khi chạm tới VPS.
+  + Tường lửa Web (WAF): Lọc bỏ các truy vấn SQL Injection, XSS, quét lỗ hổng bot.
+  + CDN Caching: Tăng tốc độ tải trang bằng cách cache các file tĩnh (JS, CSS, Ảnh).
+  + Tự động cấp phát và gia hạn chứng chỉ bảo mật SSL/TLS.
+
+
+3. VÌ SAO TUYỆT ĐỐI KHÔNG NÊN ĐỂ LỘ ORIGIN IP?
+--------------------------------------------------------------------------------
+- Kẻ tấn công có thể "Bypass" (vượt mặt) toàn bộ cơ chế bảo vệ của Cloudflare.
+- Hacker có thể bắn trực tiếp hàng triệu request DDoS thẳng vào IP của VPS, làm
+  máy chủ cạn kiệt tài nguyên (CPU 100%, RAM nghẽn, sập mạng) mà Cloudflare không
+  thể can thiệp ngăn chặn.
+- Kẻ tấn công có thể rà quét trực tiếp các cổng nội bộ (SSH port 22, DB port 5432)
+  để thực hiện các cuộc tấn công Brute-force mật khẩu.
+
+=> Giải pháp: Cấu hình Firewall UFW trên VPS chỉ chấp nhận kết nối HTTP/HTTPS
+từ các dải IP chính thức của Cloudflare (cloudflare.com/ips).
+================================================================================
+

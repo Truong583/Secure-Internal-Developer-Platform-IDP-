@@ -1,0 +1,108 @@
+================================================================================
+BÀI 5: QUY TRÌNH CHUẨN DEPLOY THỦ CÔNG ỨNG DỤNG DOCKER (CHECKLIST)
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: deploy-checklist-buoi16.txt
+================================================================================
+
+[MỤC ĐÍCH]
+Chuẩn hóa toàn bộ thao tác deploy thủ công trên máy chủ Ubuntu VPS để tránh quên bước,
+hạn chế downtime và đảm bảo dịch vụ hoạt động ổn định trước và sau deploy.
+
+--------------------------------------------------------------------------------
+BƯỚC 1: KIỂM TRA SOURCE CODE MỚI NHẤT
+--------------------------------------------------------------------------------
+1.1. Di chuyển vào thư mục dự án trên VPS:
+     cd /root/PhamDinhTruong-CICD/Secure-Internal-Developer-Platform-IDP-
+
+1.2. Kiểm tra trạng thái git hiện tại:
+     git status
+     (Đảm bảo working tree sạch sẽ, không có file sửa trực tiếp bừa bãi trên server)
+
+1.3. Kéo mã nguồn mới nhất từ nhánh main:
+     git fetch origin main
+     git log -1 --stat origin/main   # Xem nhanh commit mới nhất gồm những gì
+     git pull --ff-only origin main
+
+--------------------------------------------------------------------------------
+BƯỚC 2: KIỂM TRA BIẾN MÔI TRƯỜNG & FILE CẤU HÌNH (.ENV)
+--------------------------------------------------------------------------------
+2.1. Xác nhận file .env đã tồn tại đầy đủ các biến bắt buộc:
+     ls -la .env
+     (Đảm bảo biến DB_PASSWORD, SPRING_DATASOURCE_URL, SERVER_PORT đã sẵn sàng)
+
+2.2. Kiểm tra cú pháp file compose.yaml:
+     docker compose config --quiet
+     (Nếu lệnh trả về mã lỗi 0 không in ra lỗi cú pháp là hợp lệ)
+
+--------------------------------------------------------------------------------
+BƯỚC 3: BUILD LẠI DOCKER IMAGE & CHẠY LẠI STACK DỊCH VỤ
+--------------------------------------------------------------------------------
+3.1. Build lại image mới từ source code vừa kéo (Backend & Frontend):
+     docker compose build --no-cache
+
+3.2. Chạy lại stack ứng dụng ở chế độ background (detached):
+     docker compose up -d --remove-orphans
+
+--------------------------------------------------------------------------------
+BƯỚC 4: KIỂM TRA TRẠNG THÁI CONTAINER (HEALTHCHECK)
+--------------------------------------------------------------------------------
+4.1. Liệt kê trạng thái toàn bộ containers trong stack:
+     docker compose ps
+
+4.2. Tiêu chí đạt:
+     - Container db (PostgreSQL): Trạng thái "Up (healthy)"
+     - Container backend (Spring Boot): Trạng thái "Up"
+     - Container frontend (Next.js): Trạng thái "Up"
+
+--------------------------------------------------------------------------------
+BƯỚC 5: KIỂM TRA LOG KHỞI ĐỘNG CỦA CÁC DỊCH VỤ
+--------------------------------------------------------------------------------
+5.1. Kiểm tra log của database:
+     docker compose logs --tail=30 db
+     (Xác nhận: "database system is ready to accept connections")
+
+5.2. Kiểm tra log của backend:
+     docker compose logs --tail=50 backend
+     (Xác nhận: Spring Boot khởi động thành công trên port 8000, không bị Exception)
+
+5.3. Kiểm tra log của frontend:
+     docker compose logs --tail=30 frontend
+     (Xác nhận: Next.js server sẵn sàng lắng nghe ở port 3000)
+
+--------------------------------------------------------------------------------
+BƯỚC 6: KIỂM TRA RESPONSE (CURL VERIFY NỘI BỘ TẠI VPS)
+--------------------------------------------------------------------------------
+6.1. Kiểm tra API Backend Healthcheck:
+     curl -i -s --max-time 5 http://127.0.0.1:8000/api/health
+     (Kỳ vọng HTTP Status 200 OK, Body: {"status":"UP","database":"UP"})
+
+6.2. Kiểm tra Web Frontend nội bộ:
+     curl -I -s --max-time 5 http://127.0.0.1:3000/
+     (Kỳ vọng HTTP Status 200 OK)
+
+6.3. Kiểm tra Admin Frontend nội bộ:
+     curl -I -s --max-time 5 http://127.0.0.1:3000/admin
+     (Kỳ vọng HTTP Status 200 OK)
+
+--------------------------------------------------------------------------------
+BƯỚC 7: KIỂM TRA NGINX REVERSE PROXY & DOMAIN / SUBDOMAIN
+--------------------------------------------------------------------------------
+7.1. Kiểm tra cú pháp file Nginx:
+     nginx -t
+     (Kỳ vọng: "syntax is ok" và "test is successful")
+
+7.2. Reload Nginx (nếu có thay đổi cấu hình):
+     systemctl reload nginx
+
+7.3. Test luồng routing theo từng Virtual Host (giả lập HTTP Host Header):
+     curl -I -H "Host: truongtest.id.vn" http://127.0.0.1/
+     curl -i -H "Host: api.truongtest.id.vn" http://127.0.0.1/api/health
+     curl -I -H "Host: admin.truongtest.id.vn" http://127.0.0.1/
+
+7.4. Dọn dẹp các Docker image rác (dangling images) để tiết kiệm ổ cứng:
+     docker image prune -f
+
+--------------------------------------------------------------------------------
+KẾT QUẢ: DEPLOY THÀNH CÔNG VÀ SẴN SÀNG PHỤC VỤ NGƯỜI DÙNG!
+================================================================================
+

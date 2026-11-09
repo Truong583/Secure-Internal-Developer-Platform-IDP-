@@ -32,10 +32,19 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
+  frontend:
+    build:
+      context: ./frontend
+    image: idp-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+
 volumes:
   postgres_data:
+
 networks:
   default:
     ipam:
-     config:
+      config:
         - subnet: 10.100.50.0/24

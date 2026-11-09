@@ -1,0 +1,95 @@
+================================================================================
+BÀI 7: CHECKLIST VÀ HƯỚNG DẪN VERIFY HỆ THỐNG SAU KHI DEPLOY
+Tác giả: Phạm Đình Trường - Secure IDP Platform
+File nộp: post-deploy-verify.txt
+================================================================================
+
+[MỤC TIÊU]
+Đảm bảo 100% hệ thống hoạt động chính xác sau khi chạy lệnh deploy, phát hiện sớm lỗi
+về kết nối CSDL, crash ứng dụng, tắc nghẽn Nginx trước khi người dùng phát hiện.
+
+--------------------------------------------------------------------------------
+1. KIỂM TRA TRẠNG THÁI CONTAINERS (CONTAINER STATUS)
+--------------------------------------------------------------------------------
+Lệnh thực thi:
+  docker compose ps
+
+Tiêu chí đạt:
+  - Service `db` (PostgreSQL 16): State = "Up (healthy)", không có trạng thái restarting.
+  - Service `backend` (Spring Boot): State = "Up", cổng mapped `127.0.0.1:8000->8000/tcp`.
+  - Service `frontend` (Next.js): State = "Up", cổng mapped `127.0.0.1:3000->3000/tcp`.
+  - Exit code của lệnh là 0, không có container nào rơi vào trạng thái Exited (137/1).
+
+--------------------------------------------------------------------------------
+2. KIỂM TRA NHẬT KÝ HOẠT ĐỘNG (LOGS INSPECTION)
+--------------------------------------------------------------------------------
+Lệnh thực thi:
+  # Kiểm tra lỗi trong log backend
+  docker compose logs --tail=50 backend | grep -iE "error|exception|fail"
+  
+  # Kiểm tra kết nối CSDL thành công
+  docker compose logs --tail=30 db
+
+Tiêu chí đạt:
+  - Không có Exception fatal (như org.postgresql.util.PSQLException: Connection refused).
+  - Xuất hiện thông báo: "Started BackendApplication in X seconds".
+
+--------------------------------------------------------------------------------
+3. KIỂM TRA CỔNG ĐANG LẮNG NGHE TRÊN HOST (PORTS AUDIT)
+--------------------------------------------------------------------------------
+Lệnh thực thi:
+  ss -tuln | grep -E ':(80|443|3000|8000|5432|22)\b'
+
+Tiêu chí an toàn DevSecOps:
+  - Port 80 (HTTP) và Port 443 (HTTPS): Lắng nghe trên 0.0.0.0:* (do Nginx quản lý, phục vụ Internet).
+  - Port 22 (SSH): Lắng nghe để quản trị máy chủ.
+  - Port 8000 (Backend) & Port 3000 (Frontend): CHỈ lắng nghe trên 127.0.0.1 (Localhost).
+  - Port 5432 (Postgres): CHỈ lắng nghe trên 127.0.0.1 hoặc tốt nhất là chỉ trong dải mạng Docker nội bộ (10.100.50.0/24), TUYỆT ĐỐI KHÔNG mở 0.0.0.0:5432 ra Internet.
+
+--------------------------------------------------------------------------------
+4. KIỂM TRA PHẢN HỒI ỨNG DỤNG BẰNG CURL NỘI BỘ (APP RESPONSE CHECK)
+--------------------------------------------------------------------------------
+Lệnh 4.1: Kiểm tra Backend và liên kết Database
+  curl -i -s --max-time 5 http://127.0.0.1:8000/api/health
+  => Kết quả mong đợi: HTTP/1.1 200 OK
+     Body: {"status":"UP","database":"UP"}
+
+Lệnh 4.2: Kiểm tra Frontend Web
+  curl -I -s --max-time 5 http://127.0.0.1:3000/
+  => Kết quả mong đợi: HTTP/1.1 200 OK
+
+Lệnh 4.3: Kiểm tra Frontend Admin Console
+  curl -I -s --max-time 5 http://127.0.0.1:3000/admin
+  => Kết quả mong đợi: HTTP/1.1 200 OK
+
+--------------------------------------------------------------------------------
+5. KIỂM TRA ĐỊNH TUYẾN NGINX THEO SUBDOMAIN (NGINX ROUTING VERIFY)
+--------------------------------------------------------------------------------
+Lệnh thực thi giả lập từng Virtual Host bằng cách gửi Host header qua cổng 80:
+
+Lệnh 5.1: Test domain chính (Web giới thiệu)
+  curl -I -s -H "Host: truongtest.id.vn" http://127.0.0.1/
+  => Mong đợi: HTTP 200 OK (Nginx chuyển tiếp thành công đến port 3000)
+
+Lệnh 5.2: Test subdomain API
+  curl -i -s -H "Host: api.truongtest.id.vn" http://127.0.0.1/api/health
+  => Mong đợi: HTTP 200 OK, Body: {"status":"UP","database":"UP"}
+
+Lệnh 5.3: Test subdomain Admin
+  curl -I -s -H "Host: admin.truongtest.id.vn" http://127.0.0.1/
+  => Mong đợi: HTTP 200 OK (Nginx chuyển tiếp ngầm đến port 3000/admin)
+
+--------------------------------------------------------------------------------
+6. KIỂM TRA BẰNG TRÌNH DUYỆT (BROWSER END-TO-END CHECK)
+--------------------------------------------------------------------------------
+Nếu đã cấu hình DNS/Cloudflare hoặc cấu hình file `hosts` trên máy tính cá nhân:
+- Mở trình duyệt ẩn danh (Incognito).
+- Truy cập https://truongtest.id.vn:
+  + Giao diện Web Portal hiển thị với tông màu Slate/Emerald.
+  + Không có lỗi 502 Bad Gateway hay 404 Not Found.
+- Truy cập https://api.truongtest.id.vn/api/health:
+  + Trả về chuỗi JSON trạng thái UP.
+- Truy cập https://admin.truongtest.id.vn:
+  + Giao diện Admin Console hiển thị với tông màu Amber vàng hổ phách, hiển thị đúng bảng Audit Log và User Management.
+================================================================================
+

@@ -1,0 +1,157 @@
+================================================================================
+BÀI 9: BÁO CÁO TỔNG HỢP & ĐÁNH GIÁ KIẾN TRÚC TRIỂN KHAI HỆ THỐNG
+Dự án: Secure Internal Developer Platform (IDP)
+Học viên / Kỹ sư phụ trách: Phạm Đình Trường
+File nộp: tong-hop.txt
+================================================================================
+
+SƠ ĐỒ HỆ THỐNG TỔNG HỢP (COMPREHENSIVE ARCHITECTURE DIAGRAM):
+
+       [ Người dùng / Lập trình viên / Quản trị viên ]
+                             │
+                             ▼ (HTTPS: truongtest.id.vn / api.* / admin.*)
+        ┌─────────────────────────────────────────────────────────────┐
+        │                 LỚP BIÊN: CLOUDFLARE EDGE                   │
+        │  - Anycast DNS (Ẩn Origin IP VPS)                           │
+        │  - DDoS Layer 3/4/7 Mitigation                              │
+        │  - WAF (Web Application Firewall) & Edge Cache              │
+        └────────────────────────────┬────────────────────────────────┘
+                                     │
+                                     ▼ (SSL/TLS Strict - Encrypted)
+ ╔═══════════════════════════════════════════════════════════════════════════╗
+ ║ UBUNTU VPS (Origin Server: Public IP đã ẩn, UFW chặn port lạ)            ║
+ ║                                                                           ║
+ ║  [ NGINX REVERSE PROXY ] (Lắng nghe Port 80 & 443)                        ║
+ ║    ├── Host: truongtest.id.vn       ──▶ proxy_pass http://127.0.0.1:3000  ║
+ ║    ├── Host: admin.truongtest.id.vn ──▶ proxy_pass http://127.0.0.1:3000/admin
+ ║    └── Host: api.truongtest.id.vn   ──▶ proxy_pass http://127.0.0.1:8000  ║
+ ║                                                                           ║
+ ║  ┌─────────────────────────────────────────────────────────────────────┐  ║
+ ║  │ DOCKER COMPOSE NETWORK (Mạng nội bộ cách ly: 10.100.50.0/24)        │  ║
+ ║  │                                                                     │  ║
+ ║  │  [ frontend container ]  Next.js 16 (React 19 / TS)   :3000         │  ║
+ ║  │  [ backend container ]   Spring Boot 4.1 / Java 21    :8000         │  ║
+ ║  │          │                                                          │  ║
+ ║  │          ▼ (JDBC connection nội bộ: db:5432)                        │  ║
+ ║  │  [ db container ]        PostgreSQL 16 + Volume       :5432         │  ║
+ ║  └─────────────────────────────────────────────────────────────────────┘  ║
+ ╚═══════════════════════════════════════════════════════════════════════════╝
+
+================================================================================
+PHẦN 1: HỆ THỐNG HIỆN TẠI GỒM NHỮNG GÌ?
+================================================================================
+1. Máy chủ (Server):
+   - 01 Ubuntu VPS 24.04 LTS (x86_64) được cấp phát IP công cộng.
+   - Hệ điều hành chạy Docker Engine 27.x và Docker Compose v2.
+
+2. Các dịch vụ ứng dụng (Services):
+   - Frontend: Ứng dụng Next.js 16 (React 19, TypeScript, Tailwind CSS), cung cấp
+     cả Web Portal cho người dùng và giao diện Admin Console quản trị.
+   - Backend: Ứng dụng Java 21 / Spring Boot 4.1 MVC kết hợp JPA, cung cấp API
+     kiểm tra sức khỏe `/api/health` và các API nghiệp vụ.
+   - Database: PostgreSQL 16 Alpine, dữ liệu lưu bền vững qua Docker volume `postgres_data`.
+
+3. Cổng mạng (Port Mapping):
+   - Port 80 / 443: Public ra Internet, do Nginx Reverse Proxy tiếp nhận.
+   - Port 22: Mở cho quản trị viên SSH bảo trì server.
+   - Port 3000 (Frontend): Gắn vào loopback 127.0.0.1 (chỉ Nginx truy cập).
+   - Port 8000 (Backend): Gắn vào loopback 127.0.0.1 (chỉ Nginx truy cập).
+   - Port 5432 (Postgres): Đang gắn vào 127.0.0.1 (chỉ nội bộ máy chủ).
+
+4. Reverse Proxy & Định tuyến:
+   - Nginx đóng vai trò Ingress Controller tại mức host, phân tách traffic dựa trên
+     tiêu đề HTTP Host header (`server_name`).
+
+5. Tên miền & Subdomain:
+   - `truongtest.id.vn`: Domain chính trỏ về Web Portal.
+   - `api.truongtest.id.vn`: Subdomain phục vụ RESTful API.
+   - `admin.truongtest.id.vn`: Subdomain phục vụ trang quản trị.
+
+6. Cloudflare (Mô phỏng & Thực chiến):
+   - DNS Proxy (Bật đám mây màu cam) để giấu Origin IP của VPS.
+   - Cung cấp chứng chỉ SSL Edge và phòng thủ chống DDoS.
+
+================================================================================
+PHẦN 2: LUỒNG TRUY CẬP HỆ THỐNG (TRAFFIC FLOW)
+================================================================================
+1. Người dùng gửi request:
+   - Client mở trình duyệt gõ `https://truongtest.id.vn` hoặc `https://api.truongtest.id.vn`.
+   - DNS phân giải tên miền về địa chỉ IP Anycast của Cloudflare Edge (thay vì IP thật của VPS).
+
+2. Tại Cloudflare Edge:
+   - Cloudflare kiểm tra tính hợp lệ của request (WAF check, chặn bot xấu, lọc DDoS).
+   - Nếu là dữ liệu tĩnh có sẵn trong Cache, Cloudflare trả lời ngay. Nếu là request động,
+     Cloudflare thiết lập kết nối SSL ngược về Origin Server (Nginx trên VPS).
+
+3. Tại Nginx Reverse Proxy (VPS):
+   - Nginx đọc HTTP header `Host` trong gói tin đến:
+     + Nếu Host = `truongtest.id.vn` -> chuyển tiếp (proxy_pass) về `http://127.0.0.1:3000/`.
+     + If Host = `admin.truongtest.id.vn` -> chuyển tiếp ngầm về `http://127.0.0.1:3000/admin`.
+     + If Host = `api.truongtest.id.vn` -> chuyển tiếp về `http://127.0.0.1:8000/`.
+   - Nginx đính kèm các Header quan trọng: `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`.
+
+4. Phía sau Container (Backend & Database):
+   - Spring Boot nhận request từ Nginx. Khi endpoint `/api/health` được gọi, Backend
+     gọi xuống container PostgreSQL thông qua DNS nội bộ Docker `db:5432`.
+   - Connection pool kiểm tra tính hợp lệ của CSDL (`connection.isValid(2)`), trả về
+     kết quả JSON và gửi ngược lại cho Client.
+
+================================================================================
+PHẦN 3: QUY TRÌNH DEPLOY HIỆN TẠI
+================================================================================
+- Trạng thái hiện tại: Đã chuyển từ deploy gõ tay phân mảnh sang:
+  1. Đã có file checklist chuẩn hóa: `deploy-checklist-buoi16.txt`.
+  2. Đã có shell script tự động hóa deploy cục bộ: `deploy-basic.sh` (tự động build,
+     up stack, kiểm tra ps, in log).
+  3. Đã có file checklist và lệnh kiểm tra xác thực sau deploy: `post-deploy-verify.txt`.
+  4. CI/CD GitHub Actions: Có file `.github/workflows/maven.yml` hỗ trợ kích hoạt
+     deploy tự động qua SSH khi có commit mới lên nhánh `main`.
+
+================================================================================
+PHẦN 4: 5 RỦI RO KỸ THUẬT QUAN TRỌNG TRONG HỆ THỐNG
+================================================================================
+1. RỦI RO 1 - LỘ ORIGIN IP CỦA VPS:
+   - Nguyên nhân: Nếu cấu hình DNS cũ có record A chưa proxy, hoặc để lộ IP trong
+     header email, kẻ tấn công có thể phát hiện IP thật của VPS.
+   - Hậu quả: Bị tấn công trực tiếp DDoS làm sập VPS, vô hiệu hóa hoàn toàn Cloudflare WAF.
+
+2. RỦI RO 2 - LỘ HOẶC RÒ RỈ PORT CSDL (DATABASE):
+   - Nguyên nhân: File compose.yaml đang map port 5432 ra host (`127.0.0.1:5432:5432`).
+     Dù đã bind vào 127.0.0.1 nhưng nếu một ngày vô tình sửa thành `5432:5432` (mở 0.0.0.0),
+     CSDL sẽ bị dò mật khẩu brute-force từ Internet.
+
+3. RỦI RO 3 - QUY TRÌNH DEPLOY CHƯA CÓ CƠ CHẾ ROLLBACK TỰ ĐỘNG:
+   - Nguyên nhân: Khi chạy `deploy-basic.sh` hoặc git pull code mới, nếu code mới bị
+     lỗi crash lúc khởi động, hệ thống hiện tại chưa tự động revert lại phiên bản cũ (Rollback),
+     dẫn tới thời gian gián đoạn dịch vụ (downtime).
+
+4. RỦI RO 4 - THIẾU GIÁM SÁT TẬP TRUNG (MONITORING & ALERTING):
+   - Nguyên nhân: Hiện tại chỉ dựa vào việc kỹ sư gõ lệnh `curl` bằng tay hoặc xem log
+     thủ công. Chưa có hệ thống Prometheus / Grafana hoặc bot cảnh báo tự động về Telegram/Slack
+     khi container bị OOMKilled (hết RAM) hoặc CPU tăng đột biến.
+
+5. RỦI RO 5 - BỎ QUA AUTOMATED TESTS TRONG QUY TRÌNH BUILD:
+   - Nguyên nhân: File maven.yml và Dockerfile đang dùng cờ `-DskipTests`. Nếu lập trình
+     viên commit code có lỗi logic hay hỏng kết nối, hệ thống vẫn build image và deploy
+     lên server bình thường, đẩy bug trực tiếp cho người dùng.
+
+================================================================================
+PHẦN 5: 3 VIỆC ƯU TIÊN CẢI THIỆN NGAY
+================================================================================
+1. ƯU TIÊN 1 - ĐÓNG CỔNG DATABASE TRÊN HOST & THIẾT LẬP TƯỜNG LỬA CHẶN LỘ IP:
+   - Bỏ ánh xạ port `5432:5432` trong compose.yaml, chỉ cho phép Spring Boot gọi DB
+     qua dải mạng Docker nội bộ.
+   - Cấu hình UFW trên Ubuntu VPS: Chỉ cho phép SSH (Port 22) từ IP quản trị và
+     chỉ nhận HTTP/HTTPS (Port 80/443) từ dải IP chính thức của Cloudflare.
+
+2. ƯU TIÊN 2 - CHUẨN HÓA SCRIPT DEPLOY CÓ BƯỚC AUTO-HEALTHCHECK & ROLLBACK:
+   - Nâng cấp `deploy-basic.sh`: Sau khi `docker compose up -d`, script tự động chạy
+     vòng lặp curl vào `/api/health` 10 lần. Nếu sau 30 giây app không trả về HTTP 200,
+     script tự động rollback về git commit trước đó để đảm bảo dịch vụ không chết.
+
+3. ƯU TIÊN 3 - KÍCH HOẠT LẠI TEST TỰ ĐỘNG & QUẢN LÝ SUBDOMAIN CHẶT CHẼ TRÊN NGINX:
+   - Bỏ `-DskipTests` trong CI/CD, bắt buộc pass 100% unit test mới được deploy.
+   - Chuẩn hóa các block Nginx server_name độc lập cho từng subdomain, bật đầy đủ
+     các header bảo mật HTTP Security Headers (X-Frame-Options, X-Content-Type-Options, HSTS).
+================================================================================
+
